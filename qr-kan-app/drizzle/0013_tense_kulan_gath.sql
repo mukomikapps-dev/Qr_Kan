@@ -1,0 +1,1 @@
+ALTER TABLE `profiles` ADD `show_avatar` integer DEFAULT true NOT NULL;

@@ -1,0 +1,1 @@
+ALTER TABLE `profiles` ADD `bg_solid_color` text;

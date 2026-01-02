@@ -1,0 +1,1 @@
+ALTER TABLE `profiles` ADD `sticky_header_bg` integer DEFAULT true NOT NULL;

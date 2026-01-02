@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+Allow: /u/
+Allow: /@
+Allow: /explore
+Disallow: /dashboard
+Disallow: /admin
+Disallow: /api
+
+Sitemap: https://qrkan.com/sitemap.xml
+
+

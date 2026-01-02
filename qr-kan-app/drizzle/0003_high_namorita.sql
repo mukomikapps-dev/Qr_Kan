@@ -1,0 +1,1 @@
+ALTER TABLE `profiles` ADD `theme_preset_id` text;

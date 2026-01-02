@@ -1,0 +1,1 @@
+ALTER TABLE `profiles` ADD `bg_image_url` text;

@@ -1,0 +1,1 @@
+ALTER TABLE `profiles` ADD `use_custom_colors` integer DEFAULT false NOT NULL;
