@@ -361,7 +361,10 @@ export default function AddGenericFormClient({ username, isPro = false }: { user
 						rows={4}
 						required 
 					/>
-					<div className="text-xs text-zinc-500">Gunakan HTML tags: &lt;b&gt;, &lt;i&gt;, &lt;u&gt;, &lt;a&gt;, &lt;br&gt;, dll</div>
+					<div className="text-xs text-zinc-500">
+						Gunakan HTML tags: &lt;b&gt;, &lt;i&gt;, &lt;u&gt;, &lt;a&gt;, &lt;br&gt;, dll<br/>
+						⚠️ Jangan gunakan &lt;html&gt;, &lt;body&gt;, atau DOCTYPE tags - hanya konten HTML saja
+					</div>
 				</div>
 			);
 		}

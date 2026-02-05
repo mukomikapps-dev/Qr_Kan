@@ -1,4 +1,6 @@
 import HomePageClient from "./HomePageClient";
+import OAuthCallbackHandler from "./OAuthCallbackHandler";
+import { Suspense } from "react";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -23,5 +25,12 @@ export const revalidate = false;
 
 export default function HomePage() {
 	// Completely static page - no auth check, no server operations
-	return <HomePageClient user={null} />;
+	return (
+		<>
+			<Suspense fallback={null}>
+				<OAuthCallbackHandler />
+			</Suspense>
+			<HomePageClient user={null} />
+		</>
+	);
 }

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import HashRedirect from "@/components/HashRedirect";
+import RateLimitNotice from "@/components/RateLimitNotice";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -69,6 +70,7 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         <HashRedirect />
+        <RateLimitNotice />
         {children}
       </body>
     </html>
