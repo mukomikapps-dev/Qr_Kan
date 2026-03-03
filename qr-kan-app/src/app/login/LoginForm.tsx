@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -12,6 +12,20 @@ export default function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirect = searchParams.get("redirect") || "/dashboard/profile";
+
+  // Handle error messages from query params
+  useEffect(() => {
+    const errorParam = searchParams.get("error");
+    if (errorParam) {
+      const errorMessages: Record<string, string> = {
+        oauth_error: "Terjadi kesalahan saat login dengan Google. Silakan coba lagi.",
+        invalid_magic_link: "Link magic tidak valid atau telah kadaluarsa. Silakan request link baru.",
+        magic_link_error: "Terjadi kesalahan saat memproses magic link. Silakan coba lagi.",
+        no_token: "Token tidak ditemukan. Silakan request magic link baru.",
+      };
+      setError(errorMessages[errorParam] || "Terjadi kesalahan. Silakan coba lagi.");
+    }
+  }, [searchParams]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();

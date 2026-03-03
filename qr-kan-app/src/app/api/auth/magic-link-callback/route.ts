@@ -4,11 +4,16 @@ import type { NextRequest } from "next/server";
 
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
-  const token_hash = requestUrl.searchParams.get("token_hash");
+  
+  // Supabase can send token with different parameter names
+  const token_hash = requestUrl.searchParams.get("token_hash") || 
+                     requestUrl.searchParams.get("token");
   const type = requestUrl.searchParams.get("type");
 
+  console.log("Magic link callback - token_hash:", token_hash, "type:", type);
+
   // Handle Supabase OTP verification tokens from magic link
-  if (token_hash && type === "email") {
+  if (token_hash && (type === "email" || type === "magiclink")) {
     try {
       const supabase = await createClient();
 
@@ -60,7 +65,8 @@ export async function GET(request: NextRequest) {
   }
 
   // No valid token found
+  console.error("No token found in magic link callback URL:", requestUrl.toString());
   return NextResponse.redirect(
-    new URL("/login?error=no_token", requestUrl.origin)
+    new URL("/login?error=invalid_magic_link", requestUrl.origin)
   );
 }
