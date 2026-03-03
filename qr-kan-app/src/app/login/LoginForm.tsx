@@ -121,32 +121,6 @@ export default function LoginForm() {
 
       <button
         type="button"
-        onClick={() => router.push("/auth/magic-link")}
-        disabled={loading}
-        className="w-full flex items-center justify-center gap-2 bg-blue-50 border-2 border-blue-300 text-blue-700 font-medium py-3 rounded-lg hover:bg-blue-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M13 10V3L4 14h7v7l9-11h-7z"
-          />
-        </svg>
-        {loading ? "Memproses..." : "Magic Link Login"}
-      </button>
-
-      <div className="relative my-6">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-zinc-300"></div>
-        </div>
-        <div className="relative flex justify-center text-sm">
-          <span className="px-2 bg-white text-zinc-500">atau</span>
-        </div>
-      </div>
-
-      <button
-        type="button"
         onClick={handleGoogleLogin}
         disabled={loading}
         className="w-full flex items-center justify-center gap-3 bg-white border-2 border-zinc-300 text-zinc-700 font-medium py-3 rounded-lg hover:bg-zinc-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
