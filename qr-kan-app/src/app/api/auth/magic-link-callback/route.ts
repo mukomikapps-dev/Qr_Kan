@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
         type: "email",
       });
 
-      if (error || !data?.session) {
+      if (error || !data?.session || !data?.user) {
         // Token invalid or expired
         return NextResponse.redirect(
           new URL("/login?error=invalid_magic_link", requestUrl.origin)

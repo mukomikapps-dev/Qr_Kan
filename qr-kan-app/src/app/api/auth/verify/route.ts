@@ -8,14 +8,14 @@ export async function GET(request: NextRequest) {
   const type = requestUrl.searchParams.get("type");
 
   // Handle Supabase recovery/reset tokens from email links
-  if (token && (type === "recovery" || type === "passwordreset")) {
+  if (token && type === "recovery") {
     try {
       const supabase = await createClient();
 
-      // Exchange token for session
+      // Exchange token for session - use correct type
       const { data, error } = await supabase.auth.verifyOtp({
         token_hash: token,
-        type: type as "recovery" | "passwordreset",
+        type: "email",
       });
 
       if (error || !data?.session) {
