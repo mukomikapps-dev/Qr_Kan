@@ -101,6 +101,7 @@ export default function InfiniteScrollExplore({
               bio: profile.bio,
               avatarUrl: profile.avatarUrl,
               coverImageUrl: profile.coverImageUrl,
+              bgImageUrl: profile.bgImageUrl,
               status: profile.status,
               statusType: profile.statusType,
               blockCount: profile.blockCount,
