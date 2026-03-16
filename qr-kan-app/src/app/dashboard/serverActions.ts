@@ -7,6 +7,48 @@ import { randomUUID } from "node:crypto";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
+// Helper function to safely select profile (handles missing columns gracefully)
+async function getProfileSafe(profileId: string) {
+	try {
+		return await db.select().from(profiles).where(eq(profiles.id, profileId)).then(r => r[0]);
+	} catch (error: any) {
+		// If category column doesn't exist, select without it
+		if (error?.message?.includes('category') || error?.code === '42703') {
+			return await db.select({
+				id: profiles.id,
+				userId: profiles.userId,
+				username: profiles.username,
+				displayName: profiles.displayName,
+				bio: profiles.bio,
+				avatarUrl: profiles.avatarUrl,
+				logoUrl: profiles.logoUrl,
+				bgType: profiles.bgType,
+				bgSolidColor: profiles.bgSolidColor,
+				bgImageUrl: profiles.bgImageUrl,
+				bgPatternId: profiles.bgPatternId,
+				bgGradientColors: profiles.bgGradientColors,
+				showAvatar: profiles.showAvatar,
+				showDisplayName: profiles.showDisplayName,
+				showBio: profiles.showBio,
+				showLogo: profiles.showLogo,
+				showQr: profiles.showQr,
+				showIcons: profiles.showIcons,
+				stickyHeaderBg: profiles.stickyHeaderBg,
+				themePresetId: profiles.themePresetId,
+				themeJson: profiles.themeJson,
+				useCustomColors: profiles.useCustomColors,
+				customColors: profiles.customColors,
+				detailedColors: profiles.detailedColors,
+				status: profiles.status,
+				statusType: profiles.statusType,
+				coverImageUrl: profiles.coverImageUrl,
+				createdAt: profiles.createdAt,
+			}).from(profiles).where(eq(profiles.id, profileId)).then(r => r[0]);
+		}
+		throw error;
+	}
+}
+
 // Helper function to revalidate all related paths
 async function revalidatePublicProfile(username: string) {
 	revalidatePath("/dashboard");
@@ -17,44 +59,104 @@ async function revalidatePublicProfile(username: string) {
 async function revalidatePublicProfileByBlockId(blockId: string) {
 	const block = await db.select().from(blocks).where(eq(blocks.id, blockId)).then(r => r[0]);
 	if (!block) return;
-	const profile = await db.select().from(profiles).where(eq(profiles.id, block.profileId)).then(r => r[0]);
+	const profile = await getProfileSafe(block.profileId);
 	if (!profile) return;
 	await revalidatePublicProfile(profile.username);
 }
 
 async function revalidatePublicProfileByProfileId(profileId: string) {
-	const profile = await db.select().from(profiles).where(eq(profiles.id, profileId)).then(r => r[0]);
+	const profile = await getProfileSafe(profileId);
 	if (!profile) return;
 	await revalidatePublicProfile(profile.username);
 }
 
 export async function reorderBlocksAction(profileId: string, orderedIds: string[]) {
-	for (let i = 0; i < orderedIds.length; i++) {
-		await db.update(blocks).set({ order: i }).where(eq(blocks.id, orderedIds[i]));
+	try {
+		// Verify user is authenticated and owns the profile
+		const supabase = await createClient();
+		const { data: { user }, error: authError } = await supabase.auth.getUser();
+		if (authError || !user) {
+			throw new Error("Unauthorized");
+		}
+
+		const profile = await getProfileSafe(profileId);
+		if (!profile || profile.userId !== user.id) {
+			throw new Error("Unauthorized: User does not own this profile");
+		}
+
+		for (let i = 0; i < orderedIds.length; i++) {
+			await db.update(blocks).set({ order: i }).where(eq(blocks.id, orderedIds[i]));
+		}
+		await revalidatePublicProfileByProfileId(profileId);
+	} catch (error: any) {
+		console.error("Error reordering blocks:", error);
+		throw error;
 	}
-	await revalidatePublicProfileByProfileId(profileId);
 }
 
 export async function toggleBlockVisibilityAction(blockId: string, visible: boolean) {
-	await db.update(blocks).set({ isVisible: visible }).where(eq(blocks.id, blockId));
-	await revalidatePublicProfileByBlockId(blockId);
+	try {
+		// Verify user is authenticated
+		const supabase = await createClient();
+		const { data: { user }, error: authError } = await supabase.auth.getUser();
+		if (authError || !user) {
+			throw new Error("Unauthorized");
+		}
+
+		// Get block and verify user owns it
+		const block = await db.select().from(blocks).where(eq(blocks.id, blockId)).then(r => r[0]);
+		if (!block) {
+			throw new Error("Block not found");
+		}
+
+		const profile = await getProfileSafe(block.profileId);
+		if (!profile || profile.userId !== user.id) {
+			throw new Error("Unauthorized: User does not own this block");
+		}
+
+		await db.update(blocks).set({ isVisible: visible }).where(eq(blocks.id, blockId));
+		await revalidatePublicProfileByBlockId(blockId);
+	} catch (error: any) {
+		console.error("Error toggling block visibility:", error);
+		throw error;
+	}
 }
 
 export async function deleteBlockAction(blockId: string) {
-	// Get profile info before deleting for revalidation
-	const block = await db.select().from(blocks).where(eq(blocks.id, blockId)).then(r => r[0]);
-	const profile = block ? await db.select().from(profiles).where(eq(profiles.id, block.profileId)).then(r => r[0]) : null;
-	
-	// Delete in order to handle foreign key constraints:
-	// 1. Delete all clicks for this block
-	await db.delete(clicks).where(eq(clicks.blockId, blockId));
-	// 2. Delete all variants for this block
-	await db.delete(blockVariants).where(eq(blockVariants.blockId, blockId));
-	// 3. Finally delete the block itself
-	await db.delete(blocks).where(eq(blocks.id, blockId));
-	
-	if (profile) {
-		await revalidatePublicProfile(profile.username);
+	try {
+		// Verify user is authenticated
+		const supabase = await createClient();
+		const { data: { user }, error: authError } = await supabase.auth.getUser();
+		if (authError || !user) {
+			throw new Error("Unauthorized");
+		}
+
+		// Get block and verify it exists
+		const block = await db.select().from(blocks).where(eq(blocks.id, blockId)).then(r => r[0]);
+		if (!block) {
+			throw new Error("Block not found");
+		}
+
+		// Get profile and verify user owns it
+		const profile = await getProfileSafe(block.profileId);
+		if (!profile || profile.userId !== user.id) {
+			throw new Error("Unauthorized: User does not own this block");
+		}
+		
+		// Delete in order to handle foreign key constraints:
+		// 1. Delete all clicks for this block
+		await db.delete(clicks).where(eq(clicks.blockId, blockId));
+		// 2. Delete all variants for this block
+		await db.delete(blockVariants).where(eq(blockVariants.blockId, blockId));
+		// 3. Finally delete the block itself
+		await db.delete(blocks).where(eq(blocks.id, blockId));
+		
+		if (profile) {
+			await revalidatePublicProfile(profile.username);
+		}
+	} catch (error: any) {
+		console.error("Error deleting block:", error);
+		throw error;
 	}
 }
 
@@ -63,73 +165,125 @@ export async function updateBlockScheduledDatesAction(
 	scheduledFrom: string | null,
 	scheduledTo: string | null
 ) {
-	const from = scheduledFrom ? new Date(scheduledFrom) : null;
-	const to = scheduledTo ? new Date(scheduledTo) : null;
-	
-	await db.update(blocks).set({
-		scheduledFrom: from,
-		scheduledTo: to,
-	}).where(eq(blocks.id, blockId));
-	
-	await revalidatePublicProfileByBlockId(blockId);
+	try {
+		// Verify user is authenticated
+		const supabase = await createClient();
+		const { data: { user }, error: authError } = await supabase.auth.getUser();
+		if (authError || !user) {
+			throw new Error("Unauthorized");
+		}
+
+		// Get block and verify user owns it
+		const block = await db.select().from(blocks).where(eq(blocks.id, blockId)).then(r => r[0]);
+		if (!block) {
+			throw new Error("Block not found");
+		}
+
+		const profile = await getProfileSafe(block.profileId);
+		if (!profile || profile.userId !== user.id) {
+			throw new Error("Unauthorized: User does not own this block");
+		}
+
+		const from = scheduledFrom ? new Date(scheduledFrom) : null;
+		const to = scheduledTo ? new Date(scheduledTo) : null;
+		
+		await db.update(blocks).set({
+			scheduledFrom: from,
+			scheduledTo: to,
+		}).where(eq(blocks.id, blockId));
+		
+		await revalidatePublicProfileByBlockId(blockId);
+	} catch (error: any) {
+		console.error("Error updating block scheduled dates:", error);
+		throw error;
+	}
 }
 
 export async function updateBlockDataAction(blockId: string, data: Record<string, unknown>) {
-	// Get block to check type
-	const block = await db.select().from(blocks).where(eq(blocks.id, blockId)).then(r => r[0]);
-	
-	// If social block, rebuild URL from platform and handle
-	if (block?.type === "social" && data.platform && data.handle) {
-		const platform = String(data.platform).toLowerCase();
-		let handle = String(data.handle);
+	try {
+		// Verify user is authenticated
+		const supabase = await createClient();
+		const { data: { user }, error: authError } = await supabase.auth.getUser();
+		if (authError || !user) {
+			throw new Error("Unauthorized");
+		}
+
+		// Get block and verify user owns it
+		const block = await db.select().from(blocks).where(eq(blocks.id, blockId)).then(r => r[0]);
+		if (!block) {
+			throw new Error("Block not found");
+		}
+
+		const profile = await getProfileSafe(block.profileId);
+		if (!profile || profile.userId !== user.id) {
+			throw new Error("Unauthorized: User does not own this block");
+		}
 		
-		// Remove @ prefix if present (but preserve the handle as-is for storage)
-		const cleanHandle = handle.replace(/^@+/, "");
+		// Log the block type and data for debugging
+		console.log(`[updateBlockDataAction] Block type: ${block.type}, Block ID: ${blockId}`, data);
 		
-		// Store handle without @ prefix (but with underscore preserved)
-		data.handle = cleanHandle;
+		// If social block, rebuild URL from platform and handle
+		if (block?.type === "social" && data.platform && data.handle) {
+			const platform = String(data.platform).toLowerCase();
+			let handle = String(data.handle);
+			
+			// Remove @ prefix if present (but preserve the handle as-is for storage)
+			const cleanHandle = handle.replace(/^@+/, "");
+			
+			// Store handle without @ prefix (but with underscore preserved)
+			data.handle = cleanHandle;
+			
+			// URL encode the handle to preserve special characters like underscore
+			const encodedHandle = encodeURIComponent(cleanHandle);
+			
+			let url = "#";
+			if (platform === "instagram") url = `https://instagram.com/${encodedHandle}`;
+			else if (platform === "tiktok") url = `https://tiktok.com/@${encodedHandle}`;
+			else if (platform === "twitter" || platform === "x") url = `https://x.com/${encodedHandle}`;
+			else if (platform === "youtube") url = `https://youtube.com/@${encodedHandle}`;
+			
+			// Update data with rebuilt URL and cleaned handle
+			data.url = url;
+			data.platform = platform; // Ensure platform is lowercase
+		}
 		
-		// URL encode the handle to preserve special characters like underscore
-		const encodedHandle = encodeURIComponent(cleanHandle);
+		// If WhatsApp block, rebuild URL from phone and message
+		if (block?.type === "whatsapp" && data.phone) {
+			const phone = String(data.phone);
+			const message = String(data.message || "");
+			
+			// Clean phone number (remove non-digits)
+			const cleanPhone = phone.replace(/[^0-9]/g, "");
+			
+			// Store cleaned phone
+			data.phone = cleanPhone;
+			
+			// Build WhatsApp URL
+			const encodedMessage = encodeURIComponent(message);
+			const url = message 
+				? `https://wa.me/${cleanPhone}?text=${encodedMessage}` 
+				: `https://wa.me/${cleanPhone}`;
+			
+			// Update data with rebuilt URL
+			data.url = url;
+		}
 		
-		let url = "#";
-		if (platform === "instagram") url = `https://instagram.com/${encodedHandle}`;
-		else if (platform === "tiktok") url = `https://tiktok.com/@${encodedHandle}`;
-		else if (platform === "twitter" || platform === "x") url = `https://x.com/${encodedHandle}`;
-		else if (platform === "youtube") url = `https://youtube.com/@${encodedHandle}`;
+		const serializedData = JSON.stringify(data);
+		console.log(`[updateBlockDataAction] Serialized data: ${serializedData.substring(0, 100)}...`);
 		
-		// Update data with rebuilt URL and cleaned handle
-		data.url = url;
-		data.platform = platform; // Ensure platform is lowercase
+		await db
+			.update(blocks)
+			.set({ dataJson: serializedData })
+			.where(eq(blocks.id, blockId));
+		
+		console.log(`[updateBlockDataAction] Block updated successfully, revalidating...`);
+		revalidatePath("/dashboard");
+		await revalidatePublicProfileByBlockId(blockId);
+		console.log(`[updateBlockDataAction] Revalidation completed`);
+	} catch (error: any) {
+		console.error("Error updating block data:", error);
+		throw error;
 	}
-	
-	// If WhatsApp block, rebuild URL from phone and message
-	if (block?.type === "whatsapp" && data.phone) {
-		const phone = String(data.phone);
-		const message = String(data.message || "");
-		
-		// Clean phone number (remove non-digits)
-		const cleanPhone = phone.replace(/[^0-9]/g, "");
-		
-		// Store cleaned phone
-		data.phone = cleanPhone;
-		
-		// Build WhatsApp URL
-		const encodedMessage = encodeURIComponent(message);
-		const url = message 
-			? `https://wa.me/${cleanPhone}?text=${encodedMessage}` 
-			: `https://wa.me/${cleanPhone}`;
-		
-		// Update data with rebuilt URL
-		data.url = url;
-	}
-	
-	await db
-		.update(blocks)
-		.set({ dataJson: JSON.stringify(data) })
-		.where(eq(blocks.id, blockId));
-	revalidatePath("/dashboard");
-	await revalidatePublicProfileByBlockId(blockId);
 }
 
 export async function updateProfileAction(
@@ -709,8 +863,47 @@ export async function deleteAccountAction() {
 		return { success: false, error: "Unauthorized" };
 	}
 	
-	// Get user's profile
-	const profile = await db.select().from(profiles).where(eq(profiles.userId, user.id)).then(r => r[0]);
+	// Get user's profile (with fallback for missing columns)
+	let profile: any;
+	try {
+		profile = await db.select().from(profiles).where(eq(profiles.userId, user.id)).then(r => r[0]);
+	} catch (error: any) {
+		// If category column doesn't exist, select without it
+		if (error?.message?.includes('category') || error?.code === '42703') {
+			profile = await db.select({
+				id: profiles.id,
+				userId: profiles.userId,
+				username: profiles.username,
+				displayName: profiles.displayName,
+				bio: profiles.bio,
+				avatarUrl: profiles.avatarUrl,
+				logoUrl: profiles.logoUrl,
+				bgType: profiles.bgType,
+				bgSolidColor: profiles.bgSolidColor,
+				bgImageUrl: profiles.bgImageUrl,
+				bgPatternId: profiles.bgPatternId,
+				bgGradientColors: profiles.bgGradientColors,
+				showAvatar: profiles.showAvatar,
+				showDisplayName: profiles.showDisplayName,
+				showBio: profiles.showBio,
+				showLogo: profiles.showLogo,
+				showQr: profiles.showQr,
+				showIcons: profiles.showIcons,
+				stickyHeaderBg: profiles.stickyHeaderBg,
+				themePresetId: profiles.themePresetId,
+				themeJson: profiles.themeJson,
+				useCustomColors: profiles.useCustomColors,
+				customColors: profiles.customColors,
+				detailedColors: profiles.detailedColors,
+				status: profiles.status,
+				statusType: profiles.statusType,
+				coverImageUrl: profiles.coverImageUrl,
+				createdAt: profiles.createdAt,
+			}).from(profiles).where(eq(profiles.userId, user.id)).then(r => r[0]);
+		} else {
+			throw error;
+		}
+	}
 	
 	if (profile) {
 		// Delete all related data in order:

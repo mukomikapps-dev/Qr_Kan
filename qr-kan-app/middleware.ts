@@ -18,8 +18,8 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
   
-  // Allow admin login page without auth check
-  if (pathname === "/admin/login") {
+  // Allow public auth pages (login, register, recovery) without requiring authentication
+  if (pathname === "/admin/login" || pathname.startsWith("/auth/") || pathname === "/login" || pathname === "/register") {
     return await updateSession(req);
   }
   

@@ -587,16 +587,33 @@ export default async function UserPage(context: {
             if (b.type === "htmltext") {
               const htmlContent = String((data as any).htmlContent ?? "");
               const textColor = detailedColors.useTextColor ? detailedColors.textColor : theme.text;
+              
+              // Extract body content from HTML if it contains full document structure
+              let contentToRender = htmlContent;
+              try {
+                if (htmlContent.includes("<!DOCTYPE") || htmlContent.includes("<html")) {
+                  // This is a full HTML document, extract content between <body> tags
+                  const bodyMatch = htmlContent.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+                  if (bodyMatch && bodyMatch[1]) {
+                    contentToRender = bodyMatch[1].trim();
+                  }
+                }
+              } catch (e) {
+                // If parsing fails, use original content
+                console.error("Error parsing HTML content:", e);
+              }
+              
               return (
                 <div
                   key={b.id}
-                  className={`${classes.borderRadius} px-5 py-4 md:px-7 md:py-6 text-center text-base md:text-xl opacity-90`}
+                  className={`${classes.borderRadius} w-full px-5 py-4 md:px-7 md:py-6`}
                   style={{
                     backgroundColor: theme.secondary,
                     color: textColor,
                     border: theme.cardStyle === "border" ? `1px solid ${theme.text}20` : "none",
+                    overflow: 'auto',
                   }}
-                  dangerouslySetInnerHTML={{ __html: htmlContent }}
+                  dangerouslySetInnerHTML={{ __html: contentToRender }}
                 />
               );
             }

@@ -45,7 +45,5 @@ export async function submitGenericBlock(formData: FormData) {
 	}
 	
 	await addGenericBlock(username, type as any, fields);
-	redirect("/dashboard"); // Force refresh to show new block
+	redirect("/dashboard/editor"); // Stay on editor page to show new block
 }
-
-

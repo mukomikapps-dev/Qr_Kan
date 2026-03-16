@@ -11,6 +11,7 @@ interface Profile {
   bio: string | null;
   avatarUrl: string | null;
   coverImageUrl: string | null;
+  bgImageUrl?: string | null;
   status: string | null;
   statusType: string | null;
   blockCount: number;
@@ -86,6 +87,14 @@ export default function InfiniteScrollExplore({
       setLoading(false);
     }
   };
+
+  // Debug: log first few profiles
+  if (profiles.length > 0) {
+    console.log('[InfiniteScrollExplore] First 3 profiles:', profiles.slice(0, 3).map(p => ({
+      username: p.username,
+      coverImageUrl: p.coverImageUrl,
+    })));
+  }
 
   return (
     <>

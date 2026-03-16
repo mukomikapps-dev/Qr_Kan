@@ -70,89 +70,163 @@ export async function GET(request: NextRequest) {
       categoryColumnExists = false;
     }
 
-    // If category is provided but doesn't exist in availableCategories (case-insensitive), return empty result
-    if (category && category !== 'all' && !categoryMap.has(category.toLowerCase())) {
-      return NextResponse.json({
-        profiles: [],
-        hasMore: false,
-        page,
-      });
-    }
-
     // Get profiles with visible blocks (same logic as explore page)
-    let profilesWithVisibleBlocks = await db
-      .select({
-        id: profiles.id,
-        username: profiles.username,
-        displayName: profiles.displayName,
-        bio: profiles.bio,
-        avatarUrl: profiles.avatarUrl,
-        userId: profiles.userId,
-        status: profiles.status,
-        statusType: profiles.statusType,
-        coverImageUrl: profiles.coverImageUrl,
-      })
-      .from(profiles)
-      .innerJoin(users, eq(profiles.userId, users.id))
-      .where(
-        and(
-          or(
-            eq(users.isSuperAdmin, false),
-            isNull(users.isSuperAdmin)
-          ),
-          // Filter by category if column exists and category is provided and valid (case-insensitive)
-          // Support filtering by one category even if profile has multiple categories (comma-separated)
-          ...(category && category !== 'all' && categoryMap.has(category.toLowerCase()) && categoryColumnExists
-            ? [sql`LOWER(${profiles.category}) LIKE ${`%, ${category.toLowerCase()},%`} OR LOWER(${profiles.category}) LIKE ${`${category.toLowerCase()},%`} OR LOWER(${profiles.category}) LIKE ${`%, ${category.toLowerCase()}`} OR LOWER(${profiles.category}) = ${category.toLowerCase()}`]
-            : []),
-          // Use EXISTS to check if profile has at least one visible, active block
-          sql`EXISTS (
-            SELECT 1 FROM ${blocks}
-            WHERE ${blocks.profileId} = ${profiles.id}
-              AND ${blocks.isVisible} = true
-              AND (${blocks.scheduledFrom} IS NULL OR ${blocks.scheduledFrom} <= NOW())
-              AND (${blocks.scheduledTo} IS NULL OR ${blocks.scheduledTo} >= NOW())
-          )`
-        )
-      )
-      .limit(itemsPerPage + 1) // Fetch one extra to check if there's a next page
-      .offset(offset);
+    let profilesWithVisibleBlocks: any[] = [];
     
-    // If category filter is selected but column doesn't exist, filter by profile_categories
-    // Support filtering by one category even if profile has multiple categories (comma-separated)
-    if (category && category !== 'all' && categoryMap.has(category.toLowerCase()) && !categoryColumnExists) {
+    try {
+      // Try to fetch with category column
+      profilesWithVisibleBlocks = await db
+        .select({
+          id: profiles.id,
+          username: profiles.username,
+          displayName: profiles.displayName,
+          bio: profiles.bio,
+          avatarUrl: profiles.avatarUrl,
+          userId: profiles.userId,
+          status: profiles.status,
+          statusType: profiles.statusType,
+          coverImageUrl: profiles.coverImageUrl,
+          category: profiles.category,
+        })
+        .from(profiles)
+        .innerJoin(users, eq(profiles.userId, users.id))
+        .where(
+          and(
+            or(
+              eq(users.isSuperAdmin, false),
+              isNull(users.isSuperAdmin)
+            ),
+            // Use EXISTS to check if profile has at least one visible, active block
+            sql`EXISTS (
+              SELECT 1 FROM ${blocks}
+              WHERE ${blocks.profileId} = ${profiles.id}
+                AND ${blocks.isVisible} = true
+                AND (${blocks.scheduledFrom} IS NULL OR ${blocks.scheduledFrom} <= NOW())
+                AND (${blocks.scheduledTo} IS NULL OR ${blocks.scheduledTo} >= NOW())
+            )`
+          )
+        )
+        .limit(10000); // Get all profiles to filter by category in JavaScript
+    } catch (error: any) {
+      // If category column doesn't exist, fetch without it
+      if (error?.message?.includes('category') || error?.code === '42703') {
+        profilesWithVisibleBlocks = await db
+          .select({
+            id: profiles.id,
+            username: profiles.username,
+            displayName: profiles.displayName,
+            bio: profiles.bio,
+            avatarUrl: profiles.avatarUrl,
+            userId: profiles.userId,
+            status: profiles.status,
+            statusType: profiles.statusType,
+            coverImageUrl: profiles.coverImageUrl,
+          })
+          .from(profiles)
+          .innerJoin(users, eq(profiles.userId, users.id))
+          .where(
+            and(
+              or(
+                eq(users.isSuperAdmin, false),
+                isNull(users.isSuperAdmin)
+              ),
+              // Use EXISTS to check if profile has at least one visible, active block
+              sql`EXISTS (
+                SELECT 1 FROM ${blocks}
+                WHERE ${blocks.profileId} = ${profiles.id}
+                  AND ${blocks.isVisible} = true
+                  AND (${blocks.scheduledFrom} IS NULL OR ${blocks.scheduledFrom} <= NOW())
+                  AND (${blocks.scheduledTo} IS NULL OR ${blocks.scheduledTo} >= NOW())
+              )`
+            )
+          )
+          .limit(10000); // Get all profiles to filter by category in JavaScript
+        categoryColumnExists = false;
+      } else {
+        throw error;
+      }
+    }
+    
+    // Filter by category in JavaScript to handle both JSON array and string formats
+    if (category && category !== 'all') {
+      const beforeFilterCount = profilesWithVisibleBlocks.length;
+      console.log(`[EXPLORE] Filter "${category}" on ${beforeFilterCount} profiles`);
+      console.log(`[EXPLORE] Sample categories:`, profilesWithVisibleBlocks.slice(0, 5).map(p => p.category));
+      
+      profilesWithVisibleBlocks = profilesWithVisibleBlocks.filter(profile => {
+        if (!profile.category) return false;
+        
+        let categories: string[] = [];
+        try {
+          const parsed = JSON.parse(profile.category);
+          if (Array.isArray(parsed)) {
+            categories = parsed.map((c: any) => String(c).trim().toLowerCase());
+          } else if (typeof parsed === 'string') {
+            categories = [parsed.trim().toLowerCase()];
+          } else {
+            categories = [String(parsed).trim().toLowerCase()];
+          }
+        } catch {
+          categories = profile.category.split(',').map(c => c.trim().toLowerCase());
+        }
+        
+        return categories.includes(category.toLowerCase().trim());
+      });
+      
+      console.log(`[EXPLORE] After filter: ${profilesWithVisibleBlocks.length} profiles`);
+    }
+    
+    // Slice for pagination after filtering
+    let paginatedProfiles = profilesWithVisibleBlocks.slice(offset, offset + itemsPerPage + 1);
+    
+    // If category filter is selected but column doesn't exist, also filter by profile_categories table
+    // (backup for cases where category is stored in profile_categories table instead of profiles column)
+    if (category && category !== 'all' && !categoryColumnExists) {
       try {
-        // Get all profiles that have the selected category (even if it's part of comma-separated values)
+        // Get all profiles that have the selected category
         const allProfileCategories = await db
           .select({ profileId: profileCategories.profileId, category: profileCategories.category })
           .from(profileCategories);
         
-        // Filter profiles where selectedCategory is in the comma-separated list
+        // Filter profiles where selectedCategory matches
         const filteredIds = new Set(
           allProfileCategories
             .filter(pc => {
               if (!pc.category) return false;
-              // Split by comma and check if selectedCategory matches any of them (case-insensitive, trimmed)
-              const categories = pc.category.split(',').map(c => c.trim().toLowerCase());
+              
+              // Try parsing as JSON array first
+              let categories: string[] = [];
+              try {
+                const parsed = JSON.parse(pc.category);
+                if (Array.isArray(parsed)) {
+                  categories = parsed.map((c: any) => String(c).trim().toLowerCase());
+                } else {
+                  categories = [String(parsed).trim().toLowerCase()];
+                }
+              } catch {
+                // Not JSON, treat as comma-separated string
+                categories = pc.category.split(',').map(c => c.trim().toLowerCase());
+              }
+              
               return categories.includes(category.toLowerCase().trim());
             })
             .map(pc => pc.profileId)
         );
         
-        profilesWithVisibleBlocks = profilesWithVisibleBlocks.filter(p => filteredIds.has(p.id));
+        paginatedProfiles = paginatedProfiles.filter(p => filteredIds.has(p.id));
+        console.log(`[EXPLORE] Filtered by profile_categories: ${paginatedProfiles.length} profiles`);
       } catch (categoryError: any) {
-        // profile_categories table might not exist yet
-        console.warn("Could not filter by category from profile_categories:", categoryError?.message);
+        console.warn("Could not filter by profile_categories:", categoryError?.message);
       }
     }
 
     // Check if there's a next page
-    const hasNextPage = profilesWithVisibleBlocks.length > itemsPerPage;
+    const hasNextPage = paginatedProfiles.length > itemsPerPage;
     
     // Only take the items for current page
     const profilesForPage = hasNextPage 
-      ? profilesWithVisibleBlocks.slice(0, itemsPerPage)
-      : profilesWithVisibleBlocks;
+      ? paginatedProfiles.slice(0, itemsPerPage)
+      : paginatedProfiles;
 
     // Get profile IDs for fetching analytics
     const profileIds = profilesForPage.map(p => p.id);

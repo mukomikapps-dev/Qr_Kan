@@ -137,6 +137,7 @@ function Row({
 	const data = JSON.parse(block.dataJson);
 	const [editing, setEditing] = useState(false);
 	const [showAB, setShowAB] = useState(false);
+	const [isSaving, setIsSaving] = useState(false);
 	const [localData, setLocalData] = useState<any>(data);
 	const title =
 		block.type === "link"
@@ -191,13 +192,24 @@ function Row({
 					{editing ? (
 						<button
 							type="button"
+							disabled={isSaving}
 							onClick={async () => {
-								await updateBlockDataAction(block.id, localData);
-								setEditing(false);
-								router.refresh();
+								try {
+									setIsSaving(true);
+									console.log("Saving block data:", localData);
+									await updateBlockDataAction(block.id, localData);
+									console.log("Block saved successfully");
+									setEditing(false);
+									router.refresh();
+								} catch (error) {
+									console.error("Error saving block:", error);
+									alert("Error saving block: " + (error instanceof Error ? error.message : "Unknown error"));
+								} finally {
+									setIsSaving(false);
+								}
 							}}
-							aria-label="Simpan"
-							className="text-blue-600 hover:text-blue-700"
+							aria-label={isSaving ? "Menyimpan..." : "Simpan"}
+							className={`${isSaving ? "opacity-50 cursor-not-allowed" : ""} text-blue-600 hover:text-blue-700`}
 						>
 							<FontAwesomeIcon icon={faFloppyDisk} />
 						</button>
@@ -240,10 +252,22 @@ function Row({
 						data={localData}
 						onChange={setLocalData}
 						onSave={async () => {
-							await updateBlockDataAction(block.id, localData);
-							setEditing(false);
-							router.refresh();
+							try {
+								setIsSaving(true);
+								console.log("EditorFields saving block data:", localData);
+								await updateBlockDataAction(block.id, localData);
+								console.log("Block saved successfully from EditorFields");
+								setEditing(false);
+								router.refresh();
+							} catch (error) {
+								console.error("Error saving block from EditorFields:", error);
+								alert("Error saving block: " + (error instanceof Error ? error.message : "Unknown error"));
+								throw error;
+							} finally {
+								setIsSaving(false);
+							}
 						}}
+						isSaving={isSaving}
 					/>
 					<ScheduledContentEditor
 						scheduledFrom={block.scheduledFrom || null}
@@ -269,11 +293,13 @@ function EditorFields({
 	data,
 	onChange,
 	onSave,
+	isSaving = false,
 }: {
 	type: string;
 	data: any;
 	onChange: (next: any) => void;
 	onSave: () => void | Promise<void>;
+	isSaving?: boolean;
 }) {
 	function input(name: string, placeholder: string, className = "w-full") {
 		return (
@@ -312,12 +338,18 @@ function EditorFields({
 			<div className="flex flex-col gap-2">
 				<textarea
 					value={data?.htmlContent ?? ""}
-					onChange={(e) => onChange({ ...data, htmlContent: e.target.value })}
+					onChange={(e) => {
+						const newData = { ...data, htmlContent: e.target.value };
+						onChange(newData);
+					}}
 					placeholder="<p>HTML content...</p>"
 					className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
 					rows={4}
 				/>
-				<div className="text-xs text-zinc-500">Gunakan HTML tags: &lt;b&gt;, &lt;i&gt;, &lt;u&gt;, &lt;a&gt;, &lt;br&gt;, dll</div>
+				<div className="text-xs text-zinc-500">
+					Gunakan HTML tags: &lt;b&gt;, &lt;i&gt;, &lt;u&gt;, &lt;a&gt;, &lt;br&gt;, dll<br/>
+					⚠️ Jangan gunakan &lt;html&gt;, &lt;body&gt;, atau DOCTYPE tags - hanya konten HTML saja
+				</div>
 			</div>
 		) : null}
 		{type === "spacer" ? (
@@ -435,11 +467,19 @@ function EditorFields({
 		<div>
 			<button
 				type="button"
-				onClick={onSave}
-				className="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 transition"
+				disabled={isSaving}
+				onClick={async () => {
+					try {
+						await onSave();
+					} catch (error) {
+						console.error("Error saving block:", error);
+						alert("Error saving block: " + (error instanceof Error ? error.message : "Unknown error"));
+					}
+				}}
+				className={`inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 transition ${isSaving ? "opacity-50 cursor-not-allowed" : ""}`}
 			>
 				<FontAwesomeIcon icon={faFloppyDisk} />
-				Simpan
+				{isSaving ? "Menyimpan..." : "Simpan"}
 			</button>
 		</div>
 		</div>
