@@ -1,8 +1,5 @@
 "use client";
 
-import React from "react";
-import { jsx } from "react/jsx-runtime";
-
 /**
  * Component to display notification when free tier quota has been exceeded
  */

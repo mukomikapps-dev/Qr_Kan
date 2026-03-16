@@ -12,6 +12,7 @@ interface ProfileCardProps {
     bio: string | null;
     avatarUrl: string | null;
     coverImageUrl: string | null;
+    bgImageUrl?: string | null;
     status: string | null;
     statusType: string | null;
     blockCount: number;
@@ -32,9 +33,9 @@ export default function ProfileCard({ profile }: ProfileCardProps) {
     >
       <div className="relative flex-1 overflow-hidden">
             {/* Cover Image - Primary Focus */}
-        {profile.coverImageUrl ? (
+        {profile.coverImageUrl || profile.bgImageUrl ? (
           <Image
-            src={profile.coverImageUrl}
+            src={profile.coverImageUrl || profile.bgImageUrl!}
             alt={profile.displayName || profile.username}
             fill
             className="object-cover group-hover:scale-105 transition-transform duration-300"

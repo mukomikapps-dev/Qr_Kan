@@ -35,6 +35,8 @@ export default async function ExplorePage({
 }) {
   const params = await searchParams;
   const selectedCategory = params.category || null;
+  console.log(`[EXPLORE PAGE] Requested category: "${selectedCategory}"`);
+  
   // Always load first page for infinite scroll
   const itemsPerPage = 10;
   const offset = 0;
@@ -122,6 +124,9 @@ export default async function ExplorePage({
         bio: profiles.bio,
         avatarUrl: profiles.avatarUrl,
         userId: profiles.userId,
+        category: profiles.category,
+        coverImageUrl: profiles.coverImageUrl,
+        bgImageUrl: profiles.bgImageUrl,
       })
       .from(profiles)
       .innerJoin(users, eq(profiles.userId, users.id))
@@ -131,11 +136,6 @@ export default async function ExplorePage({
             eq(users.isSuperAdmin, false),
             isNull(users.isSuperAdmin)
           ),
-          // Filter by category if column exists and category is selected (case-insensitive)
-          // Support filtering by one category even if profile has multiple categories (comma-separated)
-          ...(selectedCategory && selectedCategory !== "all" && categoryMap.has(selectedCategory.toLowerCase()) && categoryColumnExists
-            ? [sql`LOWER(${profiles.category}) LIKE ${`%, ${selectedCategory.toLowerCase()},%`} OR LOWER(${profiles.category}) LIKE ${`${selectedCategory.toLowerCase()},%`} OR LOWER(${profiles.category}) LIKE ${`%, ${selectedCategory.toLowerCase()}`} OR LOWER(${profiles.category}) = ${selectedCategory.toLowerCase()}`]
-            : []),
           // Use EXISTS to check if profile has at least one visible, active block
           sql`EXISTS (
             SELECT 1 FROM ${blocks}
@@ -146,52 +146,84 @@ export default async function ExplorePage({
           )`
         )
       )
-      .limit(itemsPerPage + 1) // Fetch one extra to check if there's a next page
-      .offset(offset);
+      .limit(10000); // Get all profiles to filter by category in JavaScript
     
-    // If category filter is selected but column doesn't exist, filter by profile_categories
-    // Support filtering by one category even if profile has multiple categories (comma-separated)
-    // If category doesn't exist in availableCategories (case-insensitive), return empty result
-    if (selectedCategory && selectedCategory !== "all" && !categoryMap.has(selectedCategory.toLowerCase())) {
-      // Category doesn't exist, return empty result
-      profilesWithVisibleBlocks = [];
-    } else if (selectedCategory && selectedCategory !== "all" && categoryMap.has(selectedCategory.toLowerCase()) && !categoryColumnExists) {
+    // Filter by category in JavaScript to handle both JSON array and string formats
+    if (selectedCategory && selectedCategory !== "all") {
+      const beforeFilterCount = profilesWithVisibleBlocks.length;
+      
+      profilesWithVisibleBlocks = profilesWithVisibleBlocks.filter(profile => {
+        if (!profile.category) return false;
+        
+        let categories: string[] = [];
+        try {
+          // Try parsing as JSON array first
+          const parsed = JSON.parse(profile.category);
+          if (Array.isArray(parsed)) {
+            categories = parsed.map((c: any) => String(c).trim().toLowerCase());
+          } else if (typeof parsed === 'string') {
+            categories = [parsed.trim().toLowerCase()];
+          } else {
+            categories = [String(parsed).trim().toLowerCase()];
+          }
+        } catch {
+          // Not JSON, treat as comma-separated string or plain string
+          categories = profile.category.split(',').map(c => c.trim().toLowerCase());
+        }
+        
+        return categories.includes(selectedCategory.toLowerCase().trim());
+      });
+      
+      console.log(`[EXPLORE PAGE] Category filter: "${selectedCategory}" | Before: ${beforeFilterCount} | After: ${profilesWithVisibleBlocks.length}`);
+    }
+    
+    // Slice for pagination after filtering
+    const offset = 0;
+    let paginatedProfiles = profilesWithVisibleBlocks.slice(offset, offset + itemsPerPage + 1);
+    
+    // If category filter is selected but column doesn't exist, also filter by profile_categories table
+    if (selectedCategory && selectedCategory !== "all" && !categoryColumnExists) {
       try {
-        // Get all profiles that have the selected category (even if it's part of comma-separated values)
         const allProfileCategories = await db
           .select({ profileId: profileCategories.profileId, category: profileCategories.category })
           .from(profileCategories);
         
-        // Filter profiles where selectedCategory is in the comma-separated list
         const filteredIds = new Set(
           allProfileCategories
             .filter(pc => {
               if (!pc.category) return false;
-              // Split by comma and check if selectedCategory matches any of them (case-insensitive, trimmed)
-              const categories = pc.category.split(',').map(c => c.trim().toLowerCase());
+              
+              let categories: string[] = [];
+              try {
+                const parsed = JSON.parse(pc.category);
+                if (Array.isArray(parsed)) {
+                  categories = parsed.map((c: any) => String(c).trim().toLowerCase());
+                } else {
+                  categories = [String(parsed).trim().toLowerCase()];
+                }
+              } catch {
+                categories = pc.category.split(',').map(c => c.trim().toLowerCase());
+              }
+              
               return categories.includes(selectedCategory.toLowerCase().trim());
             })
             .map(pc => pc.profileId)
         );
         
-        profilesWithVisibleBlocks = profilesWithVisibleBlocks.filter(p => filteredIds.has(p.id));
+        paginatedProfiles = paginatedProfiles.filter(p => filteredIds.has(p.id));
+        console.log(`[EXPLORE PAGE] Filtered by profile_categories: ${paginatedProfiles.length} profiles`);
       } catch (categoryError: any) {
-        // profile_categories table might not exist yet
-        console.warn("Could not filter by category from profile_categories:", categoryError?.message);
+        console.warn("Could not filter by profile_categories:", categoryError?.message);
       }
     }
     
-    // Skip block counts query for faster load - we'll use a simpler approach
-    // Just sort by profile ID for consistent ordering
-    const blockCounts: { profileId: string; count: number }[] = [];
-    
     // Check if there's a next page (we fetched one extra item)
-    hasNextPage = profilesWithVisibleBlocks.length > itemsPerPage;
+    hasNextPage = paginatedProfiles.length > itemsPerPage;
     
     // Only take the items for current page
     const profilesForPage = hasNextPage 
-      ? profilesWithVisibleBlocks.slice(0, itemsPerPage)
-      : profilesWithVisibleBlocks;
+      ? paginatedProfiles.slice(0, itemsPerPage)
+      : paginatedProfiles;
     
     // Combine results (simplified - no block count sorting for faster load)
     profilesWithContent = profilesForPage.map(p => ({
@@ -201,6 +233,8 @@ export default async function ExplorePage({
       bio: p.bio,
       avatarUrl: p.avatarUrl,
       userId: p.userId,
+      coverImageUrl: p.coverImageUrl,
+      bgImageUrl: p.bgImageUrl,
       blockCount: 1, // Simplified - always show 1 for faster query
     }));
     

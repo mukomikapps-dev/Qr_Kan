@@ -11,6 +11,7 @@ interface Profile {
   bio: string | null;
   avatarUrl: string | null;
   coverImageUrl: string | null;
+  bgImageUrl?: string | null;
   status: string | null;
   statusType: string | null;
   blockCount: number;
