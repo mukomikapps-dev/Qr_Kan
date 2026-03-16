@@ -88,6 +88,14 @@ export default function InfiniteScrollExplore({
     }
   };
 
+  // Debug: log first few profiles
+  if (profiles.length > 0) {
+    console.log('[InfiniteScrollExplore] First 3 profiles:', profiles.slice(0, 3).map(p => ({
+      username: p.username,
+      coverImageUrl: p.coverImageUrl,
+    })));
+  }
+
   return (
     <>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1 sm:gap-2 lg:gap-3">
@@ -101,7 +109,6 @@ export default function InfiniteScrollExplore({
               bio: profile.bio,
               avatarUrl: profile.avatarUrl,
               coverImageUrl: profile.coverImageUrl,
-              bgImageUrl: profile.bgImageUrl,
               status: profile.status,
               statusType: profile.statusType,
               blockCount: profile.blockCount,

@@ -71,39 +71,81 @@ export async function GET(request: NextRequest) {
     }
 
     // Get profiles with visible blocks (same logic as explore page)
-    let profilesWithVisibleBlocks = await db
-      .select({
-        id: profiles.id,
-        username: profiles.username,
-        displayName: profiles.displayName,
-        bio: profiles.bio,
-        avatarUrl: profiles.avatarUrl,
-        userId: profiles.userId,
-        status: profiles.status,
-        statusType: profiles.statusType,
-        coverImageUrl: profiles.coverImageUrl,
-        bgImageUrl: profiles.bgImageUrl,
-        category: profiles.category,
-      })
-      .from(profiles)
-      .innerJoin(users, eq(profiles.userId, users.id))
-      .where(
-        and(
-          or(
-            eq(users.isSuperAdmin, false),
-            isNull(users.isSuperAdmin)
-          ),
-          // Use EXISTS to check if profile has at least one visible, active block
-          sql`EXISTS (
-            SELECT 1 FROM ${blocks}
-            WHERE ${blocks.profileId} = ${profiles.id}
-              AND ${blocks.isVisible} = true
-              AND (${blocks.scheduledFrom} IS NULL OR ${blocks.scheduledFrom} <= NOW())
-              AND (${blocks.scheduledTo} IS NULL OR ${blocks.scheduledTo} >= NOW())
-          )`
+    let profilesWithVisibleBlocks: any[] = [];
+    
+    try {
+      // Try to fetch with category column
+      profilesWithVisibleBlocks = await db
+        .select({
+          id: profiles.id,
+          username: profiles.username,
+          displayName: profiles.displayName,
+          bio: profiles.bio,
+          avatarUrl: profiles.avatarUrl,
+          userId: profiles.userId,
+          status: profiles.status,
+          statusType: profiles.statusType,
+          coverImageUrl: profiles.coverImageUrl,
+          category: profiles.category,
+        })
+        .from(profiles)
+        .innerJoin(users, eq(profiles.userId, users.id))
+        .where(
+          and(
+            or(
+              eq(users.isSuperAdmin, false),
+              isNull(users.isSuperAdmin)
+            ),
+            // Use EXISTS to check if profile has at least one visible, active block
+            sql`EXISTS (
+              SELECT 1 FROM ${blocks}
+              WHERE ${blocks.profileId} = ${profiles.id}
+                AND ${blocks.isVisible} = true
+                AND (${blocks.scheduledFrom} IS NULL OR ${blocks.scheduledFrom} <= NOW())
+                AND (${blocks.scheduledTo} IS NULL OR ${blocks.scheduledTo} >= NOW())
+            )`
+          )
         )
-      )
-      .limit(10000); // Get all profiles to filter by category in JavaScript
+        .limit(10000); // Get all profiles to filter by category in JavaScript
+    } catch (error: any) {
+      // If category column doesn't exist, fetch without it
+      if (error?.message?.includes('category') || error?.code === '42703') {
+        profilesWithVisibleBlocks = await db
+          .select({
+            id: profiles.id,
+            username: profiles.username,
+            displayName: profiles.displayName,
+            bio: profiles.bio,
+            avatarUrl: profiles.avatarUrl,
+            userId: profiles.userId,
+            status: profiles.status,
+            statusType: profiles.statusType,
+            coverImageUrl: profiles.coverImageUrl,
+          })
+          .from(profiles)
+          .innerJoin(users, eq(profiles.userId, users.id))
+          .where(
+            and(
+              or(
+                eq(users.isSuperAdmin, false),
+                isNull(users.isSuperAdmin)
+              ),
+              // Use EXISTS to check if profile has at least one visible, active block
+              sql`EXISTS (
+                SELECT 1 FROM ${blocks}
+                WHERE ${blocks.profileId} = ${profiles.id}
+                  AND ${blocks.isVisible} = true
+                  AND (${blocks.scheduledFrom} IS NULL OR ${blocks.scheduledFrom} <= NOW())
+                  AND (${blocks.scheduledTo} IS NULL OR ${blocks.scheduledTo} >= NOW())
+              )`
+            )
+          )
+          .limit(10000); // Get all profiles to filter by category in JavaScript
+        categoryColumnExists = false;
+      } else {
+        throw error;
+      }
+    }
     
     // Filter by category in JavaScript to handle both JSON array and string formats
     if (category && category !== 'all') {
@@ -244,7 +286,6 @@ export async function GET(request: NextRequest) {
       bio: p.bio,
       avatarUrl: p.avatarUrl,
       coverImageUrl: p.coverImageUrl,
-      bgImageUrl: p.bgImageUrl,
       status: p.status,
       statusType: p.statusType,
       blockCount: 1,
