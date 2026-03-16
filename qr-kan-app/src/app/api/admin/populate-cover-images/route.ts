@@ -6,64 +6,23 @@ import { NextResponse } from "next/server";
 export const dynamic = 'force-dynamic';
 
 /**
- * Generate a cover image URL based on profile username
- * Uses different Unsplash images for variety
+ * Copy bgImageUrl to coverImageUrl where coverImageUrl is empty
  */
-function generateCoverImageUrl(username: string): string {
-  const images = [
-    'https://images.unsplash.com/photo-1537498425046-c894cddc4945?w=800&h=1200&fit=crop&q=80', // Tech
-    'https://images.unsplash.com/photo-1516321318423-f06f70d504f0?w=800&h=1200&fit=crop&q=80', // Business
-    'https://images.unsplash.com/photo-1552664730-d307ca884978?w=800&h=1200&fit=crop&q=80', // Creative
-    'https://images.unsplash.com/photo-1486312338219-ce68d2c6f44d?w=800&h=1200&fit=crop&q=80', // Digital
-    'https://images.unsplash.com/photo-1559027615-cd4628902d4a?w=800&h=1200&fit=crop&q=80', // Modern
-    'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=800&h=1200&fit=crop&q=80', // Workspace
-  ];
-  
-  // Use username to seed which image to pick (deterministic)
-  const hash = username.split('').reduce((h, c) => h + c.charCodeAt(0), 0);
-  const imageIndex = hash % images.length;
-  return images[imageIndex];
-}
 
 export async function POST() {
   try {
-    // Get profiles without cover_image_url
-    const profilesWithoutCover = await db
-      .select({ id: profiles.id, username: profiles.username })
-      .from(profiles)
-      .where(isNull(profiles.coverImageUrl));
+    // Copy bgImageUrl to coverImageUrl where coverImageUrl is null but bgImageUrl exists
+    const result = await db
+      .update(profiles)
+      .set({ coverImageUrl: profiles.bgImageUrl })
+      .where(isNull(profiles.coverImageUrl))
+      .execute();
 
-    console.log(`Found ${profilesWithoutCover.length} profiles without cover image`);
-
-    if (profilesWithoutCover.length === 0) {
-      return NextResponse.json({ 
-        message: "All profiles already have cover images",
-        updated: 0
-      });
-    }
-
-    // Update each profile
-    let updated = 0;
-    const results: Array<{ username: string; coverUrl: string }> = [];
-    
-    for (const profile of profilesWithoutCover) {
-      const coverUrl = generateCoverImageUrl(profile.username);
-      
-      await db
-        .update(profiles)
-        .set({ coverImageUrl: coverUrl })
-        .where(isNull(profiles.coverImageUrl));
-      
-      updated++;
-      results.push({ username: profile.username, coverUrl });
-    }
-
-    console.log(`Updated ${updated} profiles with cover images`);
+    console.log(`Updated profiles with cover images from bg_image_url`);
     
     return NextResponse.json({ 
-      message: `Successfully updated ${updated} profiles`,
-      updated,
-      samples: results.slice(0, 5)
+      message: `Successfully populated cover images from database`,
+      updated: result
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
