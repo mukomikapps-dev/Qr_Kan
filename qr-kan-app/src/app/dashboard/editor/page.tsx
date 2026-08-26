@@ -1,13 +1,15 @@
 import { db } from "@/db/client";
-import { profiles, blocks, users } from "@/db/schema";
+import { blocks } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { randomBytes } from "crypto";
 import LogoutButton from "@/components/LogoutButton";
+import ProfileSwitcher from "@/components/ProfileSwitcher";
 import EditorTabsClient from "./EditorTabsClient";
 import Link from "next/link";
 import { getOrCreateUser } from "@/lib/user-helpers";
+import { fetchUserProfiles, resolveActiveProfile } from "@/lib/profile-utils";
 import postgres from "postgres";
 
 export default async function EditorPage() {
@@ -28,62 +30,15 @@ export default async function EditorPage() {
   // Get isPro status (with fallback for migration)
   const isPro = dbUser?.isPro ?? false;
 
-  // Check if profile exists (with fallback for status columns)
-  let profile: any;
-  try {
-    profile = (await db.select().from(profiles).where(eq(profiles.userId, user.id)))[0];
-  } catch (error: any) {
-    // If status columns don't exist yet, select without them
-    if (error?.message?.includes('status') || error?.code === '42703') {
-      profile = (await db
-        .select({
-          id: profiles.id,
-          userId: profiles.userId,
-          username: profiles.username,
-          displayName: profiles.displayName,
-          bio: profiles.bio,
-          avatarUrl: profiles.avatarUrl,
-          logoUrl: profiles.logoUrl,
-          bgType: profiles.bgType,
-          bgSolidColor: profiles.bgSolidColor,
-          bgImageUrl: profiles.bgImageUrl,
-          bgPatternId: profiles.bgPatternId,
-          bgGradientColors: profiles.bgGradientColors,
-          showAvatar: profiles.showAvatar,
-          showDisplayName: profiles.showDisplayName,
-          showBio: profiles.showBio,
-          showLogo: profiles.showLogo,
-          showQr: profiles.showQr,
-          showIcons: profiles.showIcons,
-          stickyHeaderBg: profiles.stickyHeaderBg,
-          themePresetId: profiles.themePresetId,
-          themeJson: profiles.themeJson,
-          useCustomColors: profiles.useCustomColors,
-          customColors: profiles.customColors,
-          detailedColors: profiles.detailedColors,
-          createdAt: profiles.createdAt,
-        })
-        .from(profiles)
-        .where(eq(profiles.userId, user.id)))[0];
-      if (profile) {
-        profile = {
-          ...profile,
-          status: null,
-          statusType: null,
-          coverImageUrl: null,
-        };
-      }
-    } else {
-      throw error;
-    }
-  }
-  
-  // Create profile if doesn't exist
-  if (!profile) {
+  // Fetch all profiles (handles missing columns) dan resolve profil aktif
+  let profileList: any[] = await fetchUserProfiles(user.id);
+
+  // Buat profil pertama jika belum ada
+  if (profileList.length === 0) {
     const profileId = randomBytes(16).toString('hex');
     const profileUsername = username || user.email!.split('@')[0];
     const profileDisplayName = displayName || profileUsername;
-    
+
     // Use raw SQL to insert only basic columns that definitely exist
     const connectionString = process.env.POSTGRES_URL || process.env.POSTGRES_URL_NON_POOLING;
     if (!connectionString) {
@@ -98,63 +53,12 @@ export default async function EditorPage() {
     } finally {
       await sql.end();
     }
-    
-    // Fetch the newly created profile
-    try {
-      profile = (await db.select().from(profiles).where(eq(profiles.userId, user.id)))[0];
-    } catch (error: any) {
-      if (error?.message?.includes('status') || error?.code === '42703') {
-        profile = (await db
-          .select({
-            id: profiles.id,
-            userId: profiles.userId,
-            username: profiles.username,
-            displayName: profiles.displayName,
-            bio: profiles.bio,
-            avatarUrl: profiles.avatarUrl,
-            logoUrl: profiles.logoUrl,
-            bgType: profiles.bgType,
-            bgSolidColor: profiles.bgSolidColor,
-            bgImageUrl: profiles.bgImageUrl,
-            bgPatternId: profiles.bgPatternId,
-            bgGradientColors: profiles.bgGradientColors,
-            showAvatar: profiles.showAvatar,
-            showDisplayName: profiles.showDisplayName,
-            showBio: profiles.showBio,
-            showLogo: profiles.showLogo,
-            showQr: profiles.showQr,
-            showIcons: profiles.showIcons,
-            stickyHeaderBg: profiles.stickyHeaderBg,
-            themePresetId: profiles.themePresetId,
-            themeJson: profiles.themeJson,
-            useCustomColors: profiles.useCustomColors,
-            customColors: profiles.customColors,
-            detailedColors: profiles.detailedColors,
-            createdAt: profiles.createdAt,
-          })
-          .from(profiles)
-          .where(eq(profiles.userId, user.id)))[0];
-        if (profile) {
-          profile = {
-            ...profile,
-            status: null,
-            statusType: null,
-            coverImageUrl: null,
-          };
-        }
-      } else {
-        throw error;
-      }
-    }
+    profileList = await fetchUserProfiles(user.id);
   }
-  
+
   // Ensure status and coverImageUrl fields exist
-  profile = {
-    ...profile,
-    status: profile.status ?? null,
-    statusType: profile.statusType ?? null,
-    coverImageUrl: profile.coverImageUrl ?? null,
-  };
+  const activeProfile = resolveActiveProfile(profileList, dbUser?.activeProfileId ?? null);
+  let profile: any = activeProfile;
 
   if (!profile) return <div className="p-6">Error: Unable to create profile.</div>;
   
@@ -234,6 +138,24 @@ export default async function EditorPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                 </svg>
                 Profile
+              </Link>
+              <ProfileSwitcher
+                profiles={profileList.map((p: any) => ({
+                  id: p.id,
+                  username: p.username,
+                  displayName: p.displayName,
+                }))}
+                activeProfileId={dbUser?.activeProfileId ?? null}
+                className=""
+              />
+              <Link
+                href="/dashboard/pages"
+                className="flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition-colors shadow-sm"
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h10a2 2 0 012 2v14a2 2 0 01-2 2z" />
+                </svg>
+                My Pages
               </Link>
               <LogoutButton className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100 transition-colors shadow-sm" />
             </div>

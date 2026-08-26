@@ -1,5 +1,5 @@
 import { db } from "@/db/client";
-import { profiles, blocks, users } from "@/db/schema";
+import { blocks } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { addLinkBlock, addSocialBlock, addTextBlock } from "./actions";
 import DashboardTabsClient from "./DashboardTabsClient";
@@ -8,7 +8,9 @@ import { redirect } from "next/navigation";
 import { randomBytes } from "crypto";
 import LogoutButton from "@/components/LogoutButton";
 import SubscriptionButton from "@/components/SubscriptionButton";
+import ProfileSwitcher from "@/components/ProfileSwitcher";
 import { getOrCreateUser } from "@/lib/user-helpers";
+import { fetchUserProfiles, resolveActiveProfile } from "@/lib/profile-utils";
 import postgres from "postgres";
 
 export default async function DashboardPage() {
@@ -26,62 +28,15 @@ export default async function DashboardPage() {
   // Get or create user in database
   const dbUser = await getOrCreateUser(user.id, user.email!);
 
-  // Check if profile exists (with fallback for status columns)
-  let profile: any;
-  try {
-    profile = (await db.select().from(profiles).where(eq(profiles.userId, user.id)))[0];
-  } catch (error: any) {
-    // If status columns don't exist yet, select without them
-    if (error?.message?.includes('status') || error?.code === '42703') {
-      profile = (await db
-        .select({
-          id: profiles.id,
-          userId: profiles.userId,
-          username: profiles.username,
-          displayName: profiles.displayName,
-          bio: profiles.bio,
-          avatarUrl: profiles.avatarUrl,
-          logoUrl: profiles.logoUrl,
-          bgType: profiles.bgType,
-          bgSolidColor: profiles.bgSolidColor,
-          bgImageUrl: profiles.bgImageUrl,
-          bgPatternId: profiles.bgPatternId,
-          bgGradientColors: profiles.bgGradientColors,
-          showAvatar: profiles.showAvatar,
-          showDisplayName: profiles.showDisplayName,
-          showBio: profiles.showBio,
-          showLogo: profiles.showLogo,
-          showQr: profiles.showQr,
-          showIcons: profiles.showIcons,
-          stickyHeaderBg: profiles.stickyHeaderBg,
-          themePresetId: profiles.themePresetId,
-          themeJson: profiles.themeJson,
-          useCustomColors: profiles.useCustomColors,
-          customColors: profiles.customColors,
-          detailedColors: profiles.detailedColors,
-          createdAt: profiles.createdAt,
-        })
-        .from(profiles)
-        .where(eq(profiles.userId, user.id)))[0];
-      if (profile) {
-        profile = {
-          ...profile,
-          status: null,
-          statusType: null,
-          coverImageUrl: null,
-        };
-      }
-    } else {
-      throw error;
-    }
-  }
-  
-  // Create profile if doesn't exist
-  if (!profile) {
+  // Fetch all profiles (handles missing columns) dan resolve profil aktif
+  let profileList: any[] = await fetchUserProfiles(user.id);
+
+  // Buat profil pertama jika belum ada
+  if (profileList.length === 0) {
     const profileId = randomBytes(16).toString('hex');
     const profileUsername = username || user.email!.split('@')[0];
     const profileDisplayName = displayName || profileUsername;
-    
+
     // Use raw SQL to insert only basic columns that definitely exist
     const connectionString = process.env.POSTGRES_URL || process.env.POSTGRES_URL_NON_POOLING;
     if (!connectionString) {
@@ -96,55 +51,11 @@ export default async function DashboardPage() {
     } finally {
       await sql.end();
     }
-    
-    // Fetch the newly created profile
-    try {
-      profile = (await db.select().from(profiles).where(eq(profiles.userId, user.id)))[0];
-    } catch (error: any) {
-      if (error?.message?.includes('status') || error?.code === '42703') {
-        profile = (await db
-          .select({
-            id: profiles.id,
-            userId: profiles.userId,
-            username: profiles.username,
-            displayName: profiles.displayName,
-            bio: profiles.bio,
-            avatarUrl: profiles.avatarUrl,
-            logoUrl: profiles.logoUrl,
-            bgType: profiles.bgType,
-            bgSolidColor: profiles.bgSolidColor,
-            bgImageUrl: profiles.bgImageUrl,
-            bgPatternId: profiles.bgPatternId,
-            bgGradientColors: profiles.bgGradientColors,
-            showAvatar: profiles.showAvatar,
-            showDisplayName: profiles.showDisplayName,
-            showBio: profiles.showBio,
-            showLogo: profiles.showLogo,
-            showQr: profiles.showQr,
-            showIcons: profiles.showIcons,
-            stickyHeaderBg: profiles.stickyHeaderBg,
-            themePresetId: profiles.themePresetId,
-            themeJson: profiles.themeJson,
-            useCustomColors: profiles.useCustomColors,
-            customColors: profiles.customColors,
-            detailedColors: profiles.detailedColors,
-            createdAt: profiles.createdAt,
-          })
-          .from(profiles)
-          .where(eq(profiles.userId, user.id)))[0];
-        if (profile) {
-          profile = {
-            ...profile,
-            status: null,
-            statusType: null,
-            coverImageUrl: null,
-          };
-        }
-      } else {
-        throw error;
-      }
-    }
+    profileList = await fetchUserProfiles(user.id);
   }
+
+  const activeProfile = resolveActiveProfile(profileList, dbUser?.activeProfileId ?? null);
+  let profile: any = activeProfile;
 
   if (!profile) return <div className="p-6">Error: Unable to create profile.</div>;
   
@@ -243,11 +154,86 @@ export default async function DashboardPage() {
                 </svg>
                 Profile
               </a>
+              <a
+                href="/dashboard/pages"
+                className="flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition-colors shadow-sm"
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h10a2 2 0 012 2v14a2 2 0 01-2 2z" />
+                </svg>
+                My Pages
+              </a>
+              <ProfileSwitcher
+                profiles={profileList.map((p: any) => ({
+                  id: p.id,
+                  username: p.username,
+                  displayName: p.displayName,
+                }))}
+                activeProfileId={dbUser?.activeProfileId ?? null}
+                className=""
+              />
               <SubscriptionButton />
               <LogoutButton className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100 transition-colors shadow-sm" />
             </div>
           </div>
         </div>
+
+        {/* All Pages Section */}
+        <div className="mb-6 rounded-xl border border-zinc-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between px-6 pt-5">
+            <h2 className="text-lg font-bold text-zinc-900">Semua Halaman</h2>
+            <a
+              href="/dashboard/pages"
+              className="text-sm font-medium text-emerald-600 hover:text-emerald-700 hover:underline"
+            >
+              Kelola
+            </a>
+          </div>
+          <div className="p-5 pt-3">
+            {profileList.length === 0 ? (
+              <p className="text-sm text-zinc-500">Belum ada halaman.</p>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {profileList.map((p: any) => {
+                  const isActive = p.id === profile.id;
+                  return (
+                    <a
+                      key={p.id}
+                      href={`/@${p.username}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`flex items-center gap-3 rounded-lg border p-3 transition-colors ${
+                        isActive
+                          ? "border-emerald-300 bg-emerald-50/40 hover:bg-emerald-50"
+                          : "border-zinc-200 bg-white hover:bg-zinc-50"
+                      }`}
+                    >
+                      <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border border-zinc-200 bg-zinc-100">
+                        <img
+                          src={p.avatarUrl || "/default-avatar.svg"}
+                          alt={p.displayName}
+                          className="h-full w-full object-cover"
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate font-medium text-zinc-900">{p.displayName}</span>
+                          {isActive && (
+                            <span className="shrink-0 rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-medium text-white">
+                              Aktif
+                            </span>
+                          )}
+                        </div>
+                        <div className="truncate text-sm text-zinc-500">@{p.username}</div>
+                      </div>
+                    </a>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Main Content */}
         <div className="rounded-xl border border-zinc-200 bg-white shadow-sm">
           <DashboardTabsClient

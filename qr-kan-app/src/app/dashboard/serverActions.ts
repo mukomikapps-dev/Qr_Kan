@@ -6,6 +6,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import postgres from "postgres";
 
 // Helper function to safely select profile (handles missing columns gracefully)
 async function getProfileSafe(profileId: string) {
@@ -1093,4 +1094,203 @@ export async function getAnalyticsAction(profileId: string) {
 	};
 }
 
+// ============ MULTI-PROFILE MANAGEMENT ============
+
+function normalizeUsername(raw: string): string {
+	return raw
+		.toLowerCase()
+		.replace(/[^a-z0-9._-]/g, "")
+		.replace(/^[._-]+|[._-]+$/g, "")
+		.slice(0, 30);
+}
+
+async function revalidateDashboardPaths() {
+	revalidatePath("/dashboard");
+	revalidatePath("/dashboard/pages");
+	revalidatePath("/dashboard/editor");
+	revalidatePath("/dashboard/profile");
+}
+
+/**
+ * Membuat profil baru. User free hanya boleh punya 1 profil,
+ * user Pro boleh membuat banyak profil.
+ */
+export async function createProfileAction(username: string, displayName: string): Promise<{ profileId: string }> {
+	const supabase = await createClient();
+	const { data: { user }, error: authError } = await supabase.auth.getUser();
+	if (authError || !user) {
+		throw new Error("Unauthorized");
+	}
+
+	const dbUser = await db.select().from(users).where(eq(users.id, user.id)).then(r => r[0]);
+	const isPro = dbUser?.isPro ?? false;
+
+	// Validate input
+	const cleanName = normalizeUsername(username);
+	const cleanDisplay = displayName.trim();
+	if (!cleanName) {
+		throw new Error("Username tidak valid");
+	}
+	if (!cleanDisplay) {
+		throw new Error("Display name tidak boleh kosong");
+	}
+
+	// Count existing profiles
+	const { count: profileCount } = (
+		await db.select({ count: sql<number>`count(*)` }).from(profiles).where(eq(profiles.userId, user.id))
+	)[0] ?? { count: 0 };
+
+	if (!isPro && profileCount >= 1) {
+		throw new Error("Hanya user PRO yang dapat membuat lebih dari satu profil");
+	}
+
+	// Unique username check
+	const existing = await db.select({ id: profiles.id }).from(profiles).where(eq(profiles.username, cleanName)).then(r => r[0]);
+	if (existing) {
+		throw new Error(`Username @${cleanName} sudah digunakan`);
+	}
+
+	const profileId = randomUUID();
+	// Gunakan INSERT minimal (persis seperti halaman dashboard/editor/profile)
+	// karena database live mungkin TIDAK memiliki semua kolom yang dideklarasikan
+	// di skema (mis. category, status_type, cover_image_url). Insert penuh Drizzle
+	// yang memasukkan semua kolom dapat gagal dgn 42703 (kolom tidak ada).
+	const connectionString = process.env.POSTGRES_URL || process.env.POSTGRES_URL_NON_POOLING;
+	if (!connectionString) {
+		throw new Error("POSTGRES_URL not configured");
+	}
+	const pg = postgres(connectionString, { prepare: false, max: 1 });
+	try {
+		await pg`
+			INSERT INTO profiles (id, user_id, username, display_name, bio, avatar_url)
+			VALUES (${profileId}, ${user.id}, ${cleanName}, ${cleanDisplay}, NULL, NULL)
+		`;
+	} finally {
+		await pg.end();
+	}
+
+	// Set as active profile
+	await db.update(users).set({ activeProfileId: profileId }).where(eq(users.id, user.id));
+
+	await revalidateDashboardPaths();
+	revalidatePath(`/u/${cleanName}`);
+	revalidatePath(`/@${cleanName}`);
+	return { profileId };
+}
+
+/**
+ * Menetapkan profil aktif untuk user.
+ */
+export async function setActiveProfileAction(profileId: string): Promise<{ error?: string }> {
+	const supabase = await createClient();
+	const { data: { user }, error: authError } = await supabase.auth.getUser();
+	if (authError || !user) {
+		return { error: "Unauthorized" };
+	}
+
+	const profile = await db
+		.select({ id: profiles.id, userId: profiles.userId })
+		.from(profiles)
+		.where(eq(profiles.id, profileId))
+		.then(r => r[0]);
+	if (!profile || profile.userId !== user.id) {
+		return { error: "Unauthorized: User does not own this profile" };
+	}
+
+	await db.update(users).set({ activeProfileId: profileId }).where(eq(users.id, user.id));
+	await revalidateDashboardPaths();
+	return { error: undefined };
+}
+
+/**
+ * Menghapus profil milik user. Tidak boleh menghapus profil terakhir.
+ */
+export async function deleteProfileAction(profileId: string): Promise<{ error?: string }> {
+	const supabase = await createClient();
+	const { data: { user }, error: authError } = await supabase.auth.getUser();
+	if (authError || !user) {
+		return { error: "Unauthorized" };
+	}
+
+	const profile = await db
+		.select({ id: profiles.id, userId: profiles.userId, username: profiles.username })
+		.from(profiles)
+		.where(eq(profiles.id, profileId))
+		.then(r => r[0]);
+	if (!profile || profile.userId !== user.id) {
+		return { error: "Unauthorized: tidak memiliki profil ini" };
+	}
+
+	const profileCount = await db
+		.select({ count: sql<number>`count(*)` })
+		.from(profiles)
+		.where(eq(profiles.userId, user.id))
+		.then(r => Number(r[0]?.count ?? 0));
+
+	if (profileCount <= 1) {
+		return { error: "Anda harus memiliki minimal satu profil" };
+	}
+
+	// Jika menghapus profil aktif, kosongkan active_profile_id (akan fallback ke profil pertama)
+	const dbUser = await db.select({ activeProfileId: users.activeProfileId }).from(users).where(eq(users.id, user.id)).then(r => r[0]);
+	if (dbUser?.activeProfileId === profileId) {
+		await db.update(users).set({ activeProfileId: null }).where(eq(users.id, user.id));
+	}
+
+	await db.delete(profiles).where(eq(profiles.id, profileId));
+	await revalidateDashboardPaths();
+	revalidatePath(`/u/${profile.username}`);
+	revalidatePath(`/@${profile.username}`);
+	return { error: undefined };
+}
+
+/**
+ * Mengubah username sebuah profil milik user. Username harus unik.
+ */
+export async function renameProfileAction(profileId: string, newUsername: string): Promise<{ error?: string }> {
+	const supabase = await createClient();
+	const { data: { user }, error: authError } = await supabase.auth.getUser();
+	if (authError || !user) {
+		return { error: "Unauthorized" };
+	}
+
+	const profile = await db
+		.select({ id: profiles.id, userId: profiles.userId, username: profiles.username })
+		.from(profiles)
+		.where(eq(profiles.id, profileId))
+		.then(r => r[0]);
+	if (!profile || profile.userId !== user.id) {
+		return { error: "Unauthorized: tidak memiliki profil ini" };
+	}
+
+	const cleanName = normalizeUsername(newUsername);
+	if (!cleanName) {
+		return { error: "Username tidak valid" };
+	}
+
+	// Username sama — tidak ada perubahan
+	if (cleanName === profile.username) {
+		return { error: undefined };
+	}
+
+	// Cek keunikan terhadap profil lain
+	const existing = await db
+		.select({ id: profiles.id })
+		.from(profiles)
+		.where(eq(profiles.username, cleanName))
+		.then(r => r[0]);
+	if (existing && existing.id !== profileId) {
+		return { error: `Username @${cleanName} sudah digunakan` };
+	}
+
+	const oldUsername = profile.username;
+	await db.update(profiles).set({ username: cleanName }).where(eq(profiles.id, profileId));
+
+	await revalidateDashboardPaths();
+	revalidatePath(`/u/${oldUsername}`);
+	revalidatePath(`/@${oldUsername}`);
+	revalidatePath(`/u/${cleanName}`);
+	revalidatePath(`/@${cleanName}`);
+	return { error: undefined };
+}
 

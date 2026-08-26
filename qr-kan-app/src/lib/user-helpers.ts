@@ -17,6 +17,7 @@ export async function getOrCreateUser(userId: string, userEmail: string) {
             email: users.email,
             isPro: users.isPro,
             isSuperAdmin: users.isSuperAdmin || false,
+            activeProfileId: users.activeProfileId,
           })
           .from(users)
           .where(eq(users.id, userId))
@@ -28,6 +29,7 @@ export async function getOrCreateUser(userId: string, userEmail: string) {
             id: users.id,
             email: users.email,
             isPro: users.isPro,
+            activeProfileId: users.activeProfileId,
           })
           .from(users)
           .where(eq(users.id, userId))
@@ -58,6 +60,7 @@ export async function getOrCreateUser(userId: string, userEmail: string) {
           email: users.email,
           isPro: users.isPro,
           isSuperAdmin: users.isSuperAdmin || false,
+          activeProfileId: users.activeProfileId,
         })
         .from(users)
         .where(eq(users.email, userEmail))
@@ -70,6 +73,7 @@ export async function getOrCreateUser(userId: string, userEmail: string) {
             id: users.id,
             email: users.email,
             isPro: users.isPro,
+            activeProfileId: users.activeProfileId,
           })
           .from(users)
           .where(eq(users.email, userEmail))

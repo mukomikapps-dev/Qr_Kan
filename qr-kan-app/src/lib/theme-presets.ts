@@ -14,6 +14,19 @@ export type ThemePreset = {
 
 export const THEME_PRESETS: ThemePreset[] = [
 	{
+		id: "plain",
+		name: "Plain",
+		description: "Tanpa styling — untuk konten HTML block / custom CSS sendiri",
+		primary: "#000000",
+		secondary: "#ffffff",
+		background: "#ffffff",
+		text: "#000000",
+		borderRadius: "none",
+		fontFamily: "sans",
+		buttonStyle: "solid",
+		cardStyle: "flat",
+	},
+	{
 		id: "monochrome",
 		name: "Monochrome",
 		description: "Hitam putih klasik, fully customizable",

@@ -1,12 +1,11 @@
-import { db } from "@/db/client";
-import { profiles, users, profileCategories } from "@/db/schema";
-import { eq } from "drizzle-orm";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { randomBytes } from "crypto";
 import LogoutButton from "@/components/LogoutButton";
+import ProfileSwitcher from "@/components/ProfileSwitcher";
 import ProfileFormClient from "./ProfileFormClient";
 import { getOrCreateUser } from "@/lib/user-helpers";
+import { fetchUserProfiles, resolveActiveProfile } from "@/lib/profile-utils";
 import postgres from "postgres";
 
 export default async function ProfilePage() {
@@ -24,80 +23,15 @@ export default async function ProfilePage() {
   // Get or create user in database
   const dbUser = await getOrCreateUser(user.id, user.email!);
 
-  // Check if profile exists (with fallback for status columns)
-  let profile: any;
-  try {
-    profile = (await db.select().from(profiles).where(eq(profiles.userId, user.id)))[0];
-  } catch (error: any) {
-    // If status columns don't exist yet, select without them
-    if (error?.message?.includes('status') || error?.code === '42703') {
-      profile = (await db
-        .select({
-          id: profiles.id,
-          userId: profiles.userId,
-          username: profiles.username,
-          displayName: profiles.displayName,
-          bio: profiles.bio,
-          avatarUrl: profiles.avatarUrl,
-          logoUrl: profiles.logoUrl,
-          bgType: profiles.bgType,
-          bgSolidColor: profiles.bgSolidColor,
-          bgImageUrl: profiles.bgImageUrl,
-          bgPatternId: profiles.bgPatternId,
-          bgGradientColors: profiles.bgGradientColors,
-          showAvatar: profiles.showAvatar,
-          showDisplayName: profiles.showDisplayName,
-          showBio: profiles.showBio,
-          showLogo: profiles.showLogo,
-          showQr: profiles.showQr,
-          showIcons: profiles.showIcons,
-          stickyHeaderBg: profiles.stickyHeaderBg,
-          themePresetId: profiles.themePresetId,
-          themeJson: profiles.themeJson,
-          useCustomColors: profiles.useCustomColors,
-          customColors: profiles.customColors,
-          detailedColors: profiles.detailedColors,
-          createdAt: profiles.createdAt,
-        })
-        .from(profiles)
-        .where(eq(profiles.userId, user.id)))[0];
-      if (profile) {
-        // Try to get category from profile_categories table
-        let categoryValue: string | null = null;
-        try {
-          const categoryData = await db
-            .select({ category: profileCategories.category })
-            .from(profileCategories)
-            .where(eq(profileCategories.profileId, profile.id))
-            .limit(1);
-          
-          if (categoryData.length > 0 && categoryData[0].category) {
-            categoryValue = categoryData[0].category;
-          }
-        } catch (categoryError: any) {
-          // If profile_categories table doesn't exist yet, just ignore
-          console.warn("Could not load category from profile_categories:", categoryError?.message);
-        }
-        
-        profile = {
-          ...profile,
-          status: null,
-          statusType: null,
-          coverImageUrl: null,
-          category: categoryValue,
-        };
-      }
-    } else {
-      throw error;
-    }
-  }
-  
-  // Create profile if doesn't exist
-  if (!profile) {
+  // Fetch all profiles (handles missing columns) dan resolve profil aktif
+  let profileList: any[] = await fetchUserProfiles(user.id);
+
+  // Buat profil pertama jika belum ada
+  if (profileList.length === 0) {
     const profileId = randomBytes(16).toString('hex');
     const profileUsername = username || user.email!.split('@')[0];
     const profileDisplayName = displayName || profileUsername;
-    
+
     // Use raw SQL to insert only basic columns that definitely exist
     const connectionString = process.env.POSTGRES_URL || process.env.POSTGRES_URL_NON_POOLING;
     if (!connectionString) {
@@ -112,75 +46,15 @@ export default async function ProfilePage() {
     } finally {
       await sql.end();
     }
-    
-    // Fetch the newly created profile
-    try {
-      profile = (await db.select().from(profiles).where(eq(profiles.userId, user.id)))[0];
-    } catch (error: any) {
-      if (error?.message?.includes('status') || error?.code === '42703') {
-        profile = (await db
-          .select({
-            id: profiles.id,
-            userId: profiles.userId,
-            username: profiles.username,
-            displayName: profiles.displayName,
-            bio: profiles.bio,
-            avatarUrl: profiles.avatarUrl,
-            logoUrl: profiles.logoUrl,
-            bgType: profiles.bgType,
-            bgSolidColor: profiles.bgSolidColor,
-            bgImageUrl: profiles.bgImageUrl,
-            bgPatternId: profiles.bgPatternId,
-            bgGradientColors: profiles.bgGradientColors,
-            showAvatar: profiles.showAvatar,
-            showDisplayName: profiles.showDisplayName,
-            showBio: profiles.showBio,
-            showLogo: profiles.showLogo,
-            showQr: profiles.showQr,
-            showIcons: profiles.showIcons,
-            stickyHeaderBg: profiles.stickyHeaderBg,
-            themePresetId: profiles.themePresetId,
-            themeJson: profiles.themeJson,
-            useCustomColors: profiles.useCustomColors,
-            customColors: profiles.customColors,
-            detailedColors: profiles.detailedColors,
-            createdAt: profiles.createdAt,
-          })
-          .from(profiles)
-          .where(eq(profiles.userId, user.id)))[0];
-        if (profile) {
-          // Try to get category from profile_categories table
-          let categoryValue: string | null = null;
-          try {
-            const categoryData = await db
-              .select({ category: profileCategories.category })
-              .from(profileCategories)
-              .where(eq(profileCategories.profileId, profile.id))
-              .limit(1);
-            
-            if (categoryData.length > 0 && categoryData[0].category) {
-              categoryValue = categoryData[0].category;
-            }
-          } catch (categoryError: any) {
-            // If profile_categories table doesn't exist yet, just ignore
-            console.warn("Could not load category from profile_categories:", categoryError?.message);
-          }
-          
-          profile = {
-            ...profile,
-            status: null,
-            statusType: null,
-            coverImageUrl: null,
-            category: categoryValue,
-          };
-        }
-      } else {
-        throw error;
-      }
-    }
+    profileList = await fetchUserProfiles(user.id);
   }
-  
-  // Ensure status and coverImageUrl fields exist
+
+  const activeProfile = resolveActiveProfile(profileList, dbUser?.activeProfileId ?? null);
+  let profile: any = activeProfile;
+
+  if (!profile) return <div className="p-6">Error: Unable to create profile.</div>;
+
+  // Ensure status, coverImageUrl, dan category fields exist
   profile = {
     ...profile,
     status: profile.status ?? null,
@@ -188,26 +62,6 @@ export default async function ProfilePage() {
     coverImageUrl: profile.coverImageUrl ?? null,
     category: profile.category ?? null,
   };
-  
-  // If category is null, try to get it from profile_categories table
-  if (!profile.category && profile.id) {
-    try {
-      const categoryData = await db
-        .select({ category: profileCategories.category })
-        .from(profileCategories)
-        .where(eq(profileCategories.profileId, profile.id))
-        .limit(1);
-      
-      if (categoryData.length > 0 && categoryData[0].category) {
-        profile.category = categoryData[0].category;
-      }
-    } catch (error: any) {
-      // If profile_categories table doesn't exist yet, just ignore
-      console.warn("Could not load category from profile_categories:", error?.message);
-    }
-  }
-
-  if (!profile) return <div className="p-6">Error: Unable to create profile.</div>;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-zinc-50 to-white">
@@ -246,6 +100,24 @@ export default async function ProfilePage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
                 </svg>
                 Dashboard
+              </a>
+              <ProfileSwitcher
+                profiles={profileList.map((p: any) => ({
+                  id: p.id,
+                  username: p.username,
+                  displayName: p.displayName,
+                }))}
+                activeProfileId={dbUser?.activeProfileId ?? null}
+                className=""
+              />
+              <a
+                href="/dashboard/pages"
+                className="flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition-colors shadow-sm"
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h10a2 2 0 012 2v14a2 2 0 01-2 2z" />
+                </svg>
+                My Pages
               </a>
               <LogoutButton className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100 transition-colors shadow-sm" />
             </div>

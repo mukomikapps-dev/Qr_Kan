@@ -5,13 +5,16 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   isPro: boolean("is_pro").notNull().default(false),
   isSuperAdmin: boolean("is_super_admin").notNull().default(false),
+  activeProfileId: text("active_profile_id").references(() => profiles.id, { onDelete: "set null" }),
   // Subscription fields
   subscriptionTier: text("subscription_tier").default("free"), // "free", "pro", "business"
   subscriptionStatus: text("subscription_status").default("active"), // "active", "cancelled", "expired", "pending"
   subscriptionStartDate: timestamp("subscription_start_date"),
   subscriptionEndDate: timestamp("subscription_end_date"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  activeProfileIdx: index("idx_users_active_profile_id").on(table.activeProfileId),
+}));
 
 export const profiles = pgTable("profiles", {
   id: text("id").primaryKey(),
