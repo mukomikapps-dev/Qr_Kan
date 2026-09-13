@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { randomBytes } from "crypto";
 import LogoutButton from "@/components/LogoutButton";
-import ProfileSwitcher from "@/components/ProfileSwitcher";
+import DashboardHeader from "@/components/DashboardHeader";
 import ProfileFormClient from "./ProfileFormClient";
 import { getOrCreateUser } from "@/lib/user-helpers";
 import { fetchUserProfiles, resolveActiveProfile } from "@/lib/profile-utils";
@@ -67,62 +67,13 @@ export default async function ProfilePage() {
     <div className="min-h-screen bg-gradient-to-b from-zinc-50 to-white">
       <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 lg:px-8 relative">
         {/* Header Section with Navigation */}
-        <div className="mb-6 rounded-xl border border-zinc-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg overflow-hidden shadow-md">
-                <img 
-                  src="/default-logo.svg" 
-                  alt="QR Kan Logo" 
-                  className="h-full w-full object-contain"
-                />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-zinc-900">Profile</h1>
-                <div className="mt-0.5 text-sm font-medium text-emerald-600">@{profile.username}</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <a
-                href="/dashboard/editor"
-                className="flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition-colors shadow-sm"
-              >
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-                Editor
-              </a>
-              <a
-                href="/dashboard"
-                className="flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition-colors shadow-sm"
-              >
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                </svg>
-                Dashboard
-              </a>
-              <ProfileSwitcher
-                profiles={profileList.map((p: any) => ({
-                  id: p.id,
-                  username: p.username,
-                  displayName: p.displayName,
-                }))}
-                activeProfileId={dbUser?.activeProfileId ?? null}
-                className=""
-              />
-              <a
-                href="/dashboard/pages"
-                className="flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition-colors shadow-sm"
-              >
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h10a2 2 0 012 2v14a2 2 0 01-2 2z" />
-                </svg>
-                My Pages
-              </a>
-              <LogoutButton className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100 transition-colors shadow-sm" />
-            </div>
-          </div>
-        </div>
+        <DashboardHeader
+          title="Profile"
+          username={profile.username}
+          profileList={profileList.map((p: any) => ({ id: p.id, username: p.username, displayName: p.displayName }))}
+          activeProfileId={dbUser?.activeProfileId ?? null}
+          logout={<LogoutButton className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-100 transition-colors shadow-sm" />}
+        />
         {/* Profile Header Banner */}
         <div className="relative h-48 bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-600 mt-6">
           {/* Pattern Overlay */}

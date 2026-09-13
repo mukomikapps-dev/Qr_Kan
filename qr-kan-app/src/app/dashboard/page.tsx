@@ -8,7 +8,7 @@ import { redirect } from "next/navigation";
 import { randomBytes } from "crypto";
 import LogoutButton from "@/components/LogoutButton";
 import SubscriptionButton from "@/components/SubscriptionButton";
-import ProfileSwitcher from "@/components/ProfileSwitcher";
+import DashboardHeader from "@/components/DashboardHeader";
 import { getOrCreateUser } from "@/lib/user-helpers";
 import { fetchUserProfiles, resolveActiveProfile } from "@/lib/profile-utils";
 import postgres from "postgres";
@@ -107,76 +107,19 @@ export default async function DashboardPage() {
     <div className="min-h-screen bg-gradient-to-b from-zinc-50 to-white">
       <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 lg:px-8">
         {/* Header Section */}
-        <div className="mb-6 rounded-xl border border-zinc-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-lg overflow-hidden shadow-md">
-                  <img 
-                    src="/default-logo.svg" 
-                    alt="QR Kan Logo" 
-                    className="h-full w-full object-contain"
-                  />
-                </div>
-                <div>
-                  <h1 className="text-2xl font-bold text-zinc-900">Dashboard</h1>
-                  <div className="mt-0.5 text-sm font-medium text-emerald-600">@{profile.username}</div>
-                  <div className="mt-1 flex items-center gap-2 text-sm text-zinc-500">
-                    <span>Halaman publik:</span>
-                    <a 
-                      className="font-medium text-emerald-600 hover:text-emerald-700 hover:underline transition" 
-                      href={`/@${profile.username}`} 
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      /@{profile.username}
-                    </a>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <a
-                href="/dashboard/editor"
-                className="flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition-colors shadow-sm"
-              >
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-                Editor
-              </a>
-              <a
-                href="/dashboard/profile"
-                className="flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition-colors shadow-sm"
-              >
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-                Profile
-              </a>
-              <a
-                href="/dashboard/pages"
-                className="flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition-colors shadow-sm"
-              >
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h10a2 2 0 012 2v14a2 2 0 01-2 2z" />
-                </svg>
-                My Pages
-              </a>
-              <ProfileSwitcher
-                profiles={profileList.map((p: any) => ({
-                  id: p.id,
-                  username: p.username,
-                  displayName: p.displayName,
-                }))}
-                activeProfileId={dbUser?.activeProfileId ?? null}
-                className=""
-              />
+        <DashboardHeader
+          title="Dashboard"
+          subtitle="Kelola halaman profil Anda"
+          username={profile.username}
+          profileList={profileList.map((p: any) => ({ id: p.id, username: p.username, displayName: p.displayName }))}
+          activeProfileId={dbUser?.activeProfileId ?? null}
+          logout={
+            <>
               <SubscriptionButton />
-              <LogoutButton className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100 transition-colors shadow-sm" />
-            </div>
-          </div>
-        </div>
+              <LogoutButton className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-100 transition-colors shadow-sm" />
+            </>
+          }
+        />
 
         {/* All Pages Section */}
         <div className="mb-6 rounded-xl border border-zinc-200 bg-white shadow-sm">

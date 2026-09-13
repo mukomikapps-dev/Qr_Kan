@@ -606,7 +606,7 @@ export default async function UserPage(context: {
               return (
                 <div
                   key={b.id}
-                  className={`${classes.borderRadius} w-full px-5 py-4 md:px-7 md:py-6`}
+                  className={`${classes.borderRadius} w-full`}
                   style={{
                     backgroundColor: theme.secondary,
                     color: textColor,

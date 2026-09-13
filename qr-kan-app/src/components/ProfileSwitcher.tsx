@@ -15,10 +15,12 @@ export default function ProfileSwitcher({
 	profiles,
 	activeProfileId,
 	className = "",
+	iconOnly = false,
 }: {
 	profiles: SwitcherProfile[];
 	activeProfileId?: string | null;
 	className?: string;
+	iconOnly?: boolean;
 }) {
 	const router = useRouter();
 	const [open, setOpen] = useState(false);
@@ -63,8 +65,15 @@ export default function ProfileSwitcher({
 				type="button"
 				onClick={() => setOpen((o) => !o)}
 				className="flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition-colors shadow-sm"
+				title={active ? `Profil aktif: @${active.username}` : "Ganti profil"}
 			>
-				<span className="max-w-[140px] truncate text-emerald-600">@{active?.username}</span>
+				{iconOnly ? (
+					<svg className="h-4 w-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+					</svg>
+				) : (
+					<span className="max-w-[140px] truncate text-emerald-600">@{active?.username}</span>
+				)}
 				<svg className="h-4 w-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
 				</svg>
